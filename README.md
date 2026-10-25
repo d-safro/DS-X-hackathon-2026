@@ -348,6 +348,7 @@ Sources, licenses, and checksums are in [data/raw/MANIFEST.json](data/raw/MANIFE
 
 ### Limitations
 
+- **One node per hospital, one layer.** Each hospital stands in for everything that gets a patient into a bed: ambulance and transport, emergency triage, referrals, specialty units, staffing, and the outpatient care around it. In reality these are separate systems, each with its own capacity and its own links to other hospitals, so failures can spread through several layers at once. We collapsed them into one hospital node and one layer of hospital-to-hospital links because of the time we had. Splitting a hospital into service nodes (EMS, ED, ward, ICU) and adding layers is the natural next step.
 - **Straight-line distance.** It ignores real travel time, traffic, transit, insurance, language access, hospital systems, and transport barriers.
 - **Beds only.** Capacity is a bed count. Staff, ICU strain, and equipment are not modeled.
 - **Licensed beds are not staffed beds.** The real dataset uses licensed beds as a proxy.
