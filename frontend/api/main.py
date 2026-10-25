@@ -447,7 +447,12 @@ def run(req: Changes):
 @app.post("/api/ensemble")
 def ensemble(req: EnsembleRequest):
     _, epi = _configure(req)
-    ens = run_ensemble(epi, runs=req.runs, seed=req.seed, workers=min(4, os.cpu_count() or 1))
+    ens = run_ensemble(
+        epi,
+        runs=req.runs,
+        seed=req.seed,
+        workers=min(int(os.environ.get("MAX_WORKERS", 4)), os.cpu_count() or 1),
+    )
     q = bands(ens, q=(0.05, 0.25, 0.5, 0.75, 0.95))
     out = {
         "dates": [str(t)[:10] for t in ens.time.values],

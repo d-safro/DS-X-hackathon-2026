@@ -1,0 +1,16 @@
+# Render Blueprint: one free web service built from the Dockerfile.
+# Deploy: https://dashboard.render.com/blueprint/new?repo=https://github.com/d-safro/DS-X-hackathon-2026
+services:
+  - type: web
+    name: resilinet
+    runtime: docker
+    plan: free
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/rn/meta
+    autoDeploy: true
+    envVars:
+      # CARTO basemap key (https://carto.com/basemaps/apikey/); passed to the
+      # Docker build, so redeploy after setting or changing it.
+      - key: VITE_CARTO_KEY
+        sync: false
