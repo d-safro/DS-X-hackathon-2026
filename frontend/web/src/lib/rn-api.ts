@@ -168,6 +168,43 @@ export interface Evaluation {
 	facilities?: Record<string, { hospitals: string[]; names: string[]; name: string }>;
 }
 
+export type SuggestionKind = 'surge_beds' | 'slow_spread' | 'shorten_closure' | 'cancel_closure' | 'restore_beds';
+export type SuggestionApply =
+	| { type: 'add_event'; event: RnEvent }
+	| { type: 'param'; key: ParamKey; value: number }
+	| { type: 'edit_event'; id: string; end_week: number }
+	| { type: 'remove_event'; id: string };
+
+/** One fix, already run through the model: the user's scenario plus this one change. */
+export interface Suggestion {
+	id: string;
+	kind: SuggestionKind;
+	hospital_id?: string;
+	event_id?: string;
+	factor?: number | null;
+	start_week?: number;
+	end_week?: number;
+	beds_added?: number;
+	r0_from?: number;
+	r0_to?: number;
+	cut?: number;
+	/** totals over every simulated week, after rerouting */
+	people_helped: number;
+	tract_weeks_fixed: number;
+	unmet_after: number;
+	poor_after: number;
+	per_100_beds: number | null;
+	apply: SuggestionApply;
+}
+
+export interface MitigateResult {
+	current: { unmet: number; poor_tract_weeks: number; peak_week: number; start_week: number | null };
+	suggestions: Suggestion[];
+	tried: number;
+	seconds: number;
+	status: 'ok' | 'nothing_to_fix' | 'none_helped';
+}
+
 async function call<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
 	const res = await fetch(`/api/rn/${path}`, {
 		method: body === undefined ? 'GET' : 'POST',
@@ -192,6 +229,7 @@ export const rnApi = {
 	meta: () => call<RnMeta>('meta'),
 	geo: (d: Dataset) => call<RnGeo>(`geo/${d}`),
 	run: (r: RnRequest, signal?: AbortSignal) => call<RnRun>('run', r, signal),
+	mitigate: (r: RnRequest, signal?: AbortSignal) => call<MitigateResult>('mitigate', r, signal),
 	evaluation: () => call<Evaluation>('evaluation'),
 	async download(name: string, r: RnRequest) {
 		const res = await fetch(`/api/rn/export/${name}`, {

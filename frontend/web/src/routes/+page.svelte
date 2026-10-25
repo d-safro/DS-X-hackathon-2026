@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { rn, scoreColor, tractLabel, weekLabel } from '#lib/rn.svelte.ts';
+	import { rn, describeSuggestion, scoreColor, tractLabel, weekLabel } from '#lib/rn.svelte.ts';
 	import { num, fixed, pct } from '#lib/format.ts';
 	import RnMap from '#lib/components/RnMap.svelte';
+	import Icon from '#lib/components/Icon.svelte';
 
 	const r = $derived(rn.result!);
 	const v = $derived(rn.view!);
@@ -10,6 +11,12 @@
 	const after = $derived(rn.phase === 'after');
 	const nTracts = $derived(r.districts.length);
 	const need = $derived(v.need.reduce((a, x) => a + (x ?? 0), 0));
+
+	// any week, after rerouting, where someone goes without a bed or a tract has poor access
+	const troubled = $derived(
+		r.scenario.some((w) => w.after.metrics.unmet_need_people >= 0.5 || w.after.metrics.districts_below_threshold > 0)
+	);
+	const topFix = $derived(rn.suggestions?.suggestions[0] ?? null);
 
 	const hospitals = $derived(
 		v.hospitals
@@ -87,6 +94,21 @@
 				<small>{delta(m.districts_below_threshold, b.metrics.districts_below_threshold) || `score under ${r.threshold}`}</small>
 			</div>
 		</div>
+
+		{#if topFix}
+			<a class="fix" href="/scenario#help">
+				<Icon name="bulb" size={14} />
+				<span
+					>Biggest fix the model found: <b>{describeSuggestion(topFix, r.weeks).title}</b>, {num(topFix.people_helped)} more people
+					get a bed over the run. See all →</span
+				>
+			</a>
+		{:else if troubled}
+			<a class="fix" href="/scenario#help" onclick={() => rn.suggest()}>
+				<Icon name="bulb" size={14} />
+				<span>What would help? Try a few fixes →</span>
+			</a>
+		{/if}
 
 		{#if r.fallback_districts.length}
 			<p class="note">
@@ -180,6 +202,32 @@
 	.when .muted {
 		font-size: 12px;
 		margin-top: 2px;
+	}
+	.fix {
+		display: flex;
+		gap: 8px;
+		align-items: flex-start;
+		font-size: 12.5px;
+		line-height: 1.5;
+		color: var(--text-2);
+		text-decoration: none;
+		border: 1px solid var(--line-2);
+		border-radius: 10px;
+		padding: 9px 12px;
+		background: rgb(12 163 12 / 0.06);
+	}
+	.fix:hover {
+		background: var(--hover);
+		color: var(--text-1);
+	}
+	.fix :global(svg) {
+		flex-shrink: 0;
+		margin-top: 2px;
+		color: var(--good);
+	}
+	.fix b {
+		color: var(--text-1);
+		font-weight: 500;
 	}
 	.story {
 		margin: 0;

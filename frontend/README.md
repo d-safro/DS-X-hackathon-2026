@@ -50,7 +50,7 @@ neighborhoods and hospitals on a plain dark background.
 | Map | the 230 Suffolk census tracts coloured by access score on one fixed 0 to 100 scale, hospitals as circles sized by beds and coloured by score; the four headline numbers (hospitals over capacity, people who can't get a bed, people sent elsewhere, tracts with poor access) against the no-events run; click a tract for where its patients go |
 | Hospitals | patients wanting a bed against beds for every hospital, one hospital in detail, beds and scores week by week, and the full table |
 | Census tracts | every tract, searchable and sortable; one tract's catchment (distance, share, hospital score, ceiling) and its access and unmet need over time |
-| Scenario lab | add closures and bed cuts; the week with and without your events, before and after rerouting, the hardest-hit tracts, hospital changes and the reroute ledger |
+| Scenario lab | add closures and bed cuts; **What would help** (fixes tried on your scenario, ranked, with Apply); the week with and without your events, before and after rerouting, the hardest-hit tracts, hospital changes and the reroute ledger |
 | Tested on real data | the fixed-origin and rolling-origin backtests against HHS Suffolk hospital data, next to "next week = this week"; the model loses and the page says so |
 | Data and downloads | the data mode, the hospital crosswalk and exclusions, tract counts, loader notes, the raw manifest and the four exports (`hospital_week.csv`, `district_week.csv`, `reroute_week.csv`, `run.json`) |
 | How it works | the four weekly steps, this run's epidemic, units, limits and the equations |
@@ -90,6 +90,7 @@ All JSON. The weekly routes are in `api/resilinet.py`, the daily ones in
 | `GET /api/rn/geo/{dataset}` | tract outlines; feature `id` is the tract's index in the run's `districts` |
 | `POST /api/rn/run` | `{dataset, r0, p_h, seed, d0, alpha_d, alpha_h, weeks, fallback, events}` → hospitals, tracts with names and catchments, the weekly epidemic, and every week before and after rerouting, for the scenario and (with events) the no-events baseline; engine errors come back as 422 with the engine's message |
 | `POST /api/rn/export/{file}` | the same body → `hospital_week.csv`, `district_week.csv`, `reroute_week.csv` or `run.json` from `pipeline.api` |
+| `POST /api/rn/mitigate` | the same body → fixes tried on that scenario (25% more beds at up to 4 hospitals, R0 × 0.9 and × 0.8, shorter or cancelled closures, restored beds), each a full rerun, ranked by people who get a bed over the run, with tract-weeks of poor access fixed and how to apply each one |
 | `GET /api/rn/evaluation` | `artifacts/evaluation.json` (computed once if missing) plus facility names |
 | `GET /api/scenarios`, `GET /api/scenario/{id}` | scenario list; one scenario's config, derived rates and map places |
 | `GET /api/presets` | disease presets and their sources |

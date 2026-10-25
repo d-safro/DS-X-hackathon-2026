@@ -145,6 +145,7 @@ Each item below is covered by the automated tests or by the offline demo scripts
 - **Overflow rerouting.** Extra new admissions are redirected to hospitals with free capacity, with a row-by-row ledger of what moved where.
 - **Dependency analysis.** FDNA-based hospital and neighborhood scores, before and after rerouting.
 - **Scenario events.** Close a hospital or reduce its capacity, then reset to the baseline.
+- **What would help (website).** For the current scenario, the website tries a few fixes (25% more beds at the most overloaded hospitals, slower spread, a shorter or cancelled closure, restored beds), reruns the model for each, and ranks them by how many more people get a bed. One click adds a fix to the scenario. These are model what-ifs, not advice.
 - **Before/after and baseline comparison.** Four headline numbers: overloaded hospitals, unmet need, people rerouted, and tracts below an access score of 70.
 - **Interactive app.** Sidebar controls for R0 (how contagious), hospitalization share, starting infections, distance decay, dependency strengths, and number of weeks. Map, hospital, tract, ledger, validation, and data tabs.
 - **Downloads.** `hospital_week.csv`, `district_week.csv`, `reroute_week.csv`, and `run.json`.

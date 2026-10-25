@@ -4,6 +4,7 @@ import {
 	rnApi,
 	type Dataset,
 	type Evaluation,
+	type MitigateResult,
 	type ParamKey,
 	type Phase,
 	type RnDistrict,
@@ -12,6 +13,7 @@ import {
 	type RnMeta,
 	type RnRequest,
 	type RnRun,
+	type Suggestion,
 	type WeekView
 } from './rn-api';
 
@@ -49,10 +51,17 @@ class RnState {
 	evaluation = $state<Evaluation | null>(null);
 	evalError = $state<string | null>(null);
 
+	/** "What would help": fixes tried on the current scenario, or null until asked for. */
+	suggestions = $state<MitigateResult | null>(null);
+	suggesting = $state(false);
+	suggestError = $state<string | null>(null);
+
 	#abort: AbortController | null = null;
 	#timer: ReturnType<typeof setTimeout> | null = null;
 	#nextId = 1;
 	#evalStarted = false;
+	#suggestAbort: AbortController | null = null;
+	#suggestKey = '';
 
 	get nWeeks() {
 		return this.result?.weeks ?? 0;
@@ -193,10 +202,50 @@ class RnState {
 			this.week = Math.min(this.week, res.weeks - 1);
 			if (this.selectedHospital && !res.hospitals.some((h) => h.id === this.selectedHospital)) this.selectedHospital = null;
 			if (this.selectedDistrict && !res.districts.some((d) => d.id === this.selectedDistrict)) this.selectedDistrict = null;
+			// suggestions belong to the scenario they were worked out for
+			if (this.suggestions && JSON.stringify(this.request()) !== this.#suggestKey) this.suggestions = null;
 		} catch (e) {
 			if ((e as Error).name !== 'AbortError') this.error = (e as Error).message;
 		} finally {
 			if (this.#abort === ctrl) this.loading = false;
+		}
+	}
+
+	/** Try a few fixes on the current scenario (a few seconds: each one is a full rerun). */
+	async suggest() {
+		this.#suggestAbort?.abort();
+		const ctrl = new AbortController();
+		this.#suggestAbort = ctrl;
+		const req = this.request();
+		const key = JSON.stringify(req);
+		this.suggesting = true;
+		this.suggestError = null;
+		try {
+			const res = await rnApi.mitigate(req, ctrl.signal);
+			if (JSON.stringify(this.request()) !== key) return; // the scenario changed meanwhile
+			this.#suggestKey = key;
+			this.suggestions = res;
+		} catch (e) {
+			if ((e as Error).name !== 'AbortError') this.suggestError = (e as Error).message;
+		} finally {
+			if (this.#suggestAbort === ctrl) this.suggesting = false;
+		}
+	}
+
+	/** Make a suggestion part of the scenario, then rerun. */
+	async applySuggestion(s: Suggestion) {
+		const a = s.apply;
+		this.suggestions = null;
+		if (a.type === 'add_event') {
+			const { id: _id, ...e } = a.event;
+			await this.addEvent(e);
+		} else if (a.type === 'param') {
+			this.setParam(a.key, a.value);
+		} else if (a.type === 'edit_event') {
+			this.events = this.events.map((e) => (e.id === a.id ? { ...e, end_week: a.end_week } : e));
+			this.schedule(0);
+		} else {
+			this.removeEvent(a.id);
 		}
 	}
 
@@ -232,12 +281,47 @@ export function tractLabel(d: RnDistrict | undefined | null): string {
 	return d.area ? `${d.area} · ${d.name.replace('Tract ', 'tract ')}` : d.name;
 }
 
-/** "Close" / "Cut to 60% of beds:" and "weeks 3–8" for an event (weeks shown 1-based). */
+/** "Close" / "Cut to 60% of beds:" / "Add 25% beds:" and "weeks 3–8" for an event (weeks shown 1-based). */
 export function describeEvent(e: RnEvent, nWeeks: number) {
-	const what = e.kind === 'close_hospital' ? 'Close' : `Cut to ${Math.round((e.factor ?? 0.6) * 100)}% of beds:`;
+	const f = e.factor ?? 0.6;
+	const what =
+		e.kind === 'close_hospital' ? 'Close' : f > 1 ? `Add ${Math.round((f - 1) * 100)}% beds:` : `Cut to ${Math.round(f * 100)}% of beds:`;
 	const end = e.end_week ?? nWeeks;
 	const when = e.start_week + 1 === end ? `week ${end}` : `weeks ${e.start_week + 1}–${end}`;
 	return { what, when };
+}
+
+/** A suggestion in words: what to change, and the detail behind it. */
+export function describeSuggestion(s: Suggestion, nWeeks: number): { title: string; detail: string } {
+	const name = s.hospital_id ? rn.hospitalName(s.hospital_id) : '';
+	switch (s.kind) {
+		case 'surge_beds':
+			return {
+				title: `Add ${Math.round(((s.factor ?? 1) - 1) * 100)}% beds at ${name} from week ${(s.start_week ?? 0) + 1}`,
+				detail: `${s.beds_added} extra beds. Each 100 of them get ${Math.round(s.per_100_beds ?? 0)} more people a bed over the run.`
+			};
+		case 'slow_spread':
+			return {
+				title: `Slow the spread by ${Math.round((s.cut ?? 0) * 100)}%`,
+				detail: `R0 from ${s.r0_from} to ${s.r0_to}, as distancing, masks or vaccination might.`
+			};
+		case 'shorten_closure': {
+			const ev = rn.events.find((e) => e.id === s.event_id);
+			const was = (ev?.end_week ?? nWeeks) - (s.start_week ?? 0);
+			const now = (s.end_week ?? 0) - (s.start_week ?? 0);
+			return {
+				title: `Reopen ${name} from week ${(s.end_week ?? 0) + 1}`,
+				detail: `Closed for ${now} weeks instead of ${was}.`
+			};
+		}
+		case 'cancel_closure':
+			return { title: `Keep ${name} open`, detail: 'Drop your closure of this hospital.' };
+		case 'restore_beds':
+			return {
+				title: `Give ${name} its beds back`,
+				detail: `Undo your cut to ${Math.round((s.factor ?? 0) * 100)}% of its beds.`
+			};
+	}
 }
 
 export function weekLabel(i: number) {

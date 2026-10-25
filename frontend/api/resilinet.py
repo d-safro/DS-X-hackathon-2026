@@ -8,6 +8,7 @@ neighborhood names, and packs results into compact JSON for the browser.
     GET  /api/rn/geo/{dataset}     district outlines (feature id = district index)
     POST /api/rn/run               scenario + baseline, every week, before and after
     POST /api/rn/export/{file}     hospital_week.csv, district_week.csv, reroute_week.csv, run.json
+    POST /api/rn/mitigate          what-if fixes for a scenario, ranked by people who get a bed
     GET  /api/rn/evaluation        historical backtest vs persistence (artifacts/evaluation.json)
 """
 
@@ -19,6 +20,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -86,7 +88,8 @@ class RnEvent(BaseModel):
     hospital_id: str
     start_week: int = Field(ge=0)
     end_week: int | None = None  # exclusive, like the engine
-    factor: float | None = Field(default=None, ge=0, le=1)
+    # below 1 cuts beds, above 1 adds them (the engine accepts any non-negative factor)
+    factor: float | None = Field(default=None, ge=0, le=2)
 
 
 class RnRun(BaseModel):
@@ -432,6 +435,208 @@ def export(name: str, req: RnRun):
         media_type=EXPORTS[name],
         headers={"content-disposition": f'attachment; filename="{name}"'},
     )
+
+
+# ---- what would help -------------------------------------------------------------
+# Each candidate is the user's scenario plus one change, run through the same engine.
+SURGE = 1.25  # +25% beds
+SPREAD = (0.9, 0.8)  # R0 multipliers
+MAX_SURGE_SITES = 4
+MAX_EVENT_FIXES = 2
+
+
+@lru_cache(maxsize=64)
+def _totals(dataset: str, config_json: str, events_json: str) -> dict:
+    """Unmet need and poor-access tract-weeks over the whole run, after rerouting."""
+    inputs = _inputs(dataset, config_json)
+    req = RnRun(dataset=dataset, events=json.loads(events_json))
+    try:
+        run = rn.run_scenario(inputs, _injections(req))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(422, str(e)) from e
+    unmet, poor, over = [], [], []
+    for w in rn.list_weeks(run):
+        v = rn.get_week(run, w, "after")
+        unmet.append(float(v["metrics"]["unmet_need_people"]))
+        poor.append(int(v["metrics"]["districts_below_threshold"]))
+        over.append(
+            {h["hospital_id"]: float(h["excess"]) for h in v["hospitals"] if not h["closed"]}
+        )
+    return {
+        "unmet": sum(unmet),
+        "poor": sum(poor),
+        "unmet_w": unmet,
+        "poor_w": poor,
+        "over_w": over,
+    }
+
+
+def _km(a: dict, b: dict) -> float:
+    lat = math.radians((a["lat"] + b["lat"]) / 2)
+    dx = (a["lon"] - b["lon"]) * 111.32 * math.cos(lat)
+    dy = (a["lat"] - b["lat"]) * 110.57
+    return math.hypot(dx, dy)
+
+
+def _candidates(req: RnRun, now: dict, hospitals: list[dict]) -> tuple[list[dict], int | None]:
+    """The fixes worth trying for this scenario, and the week extra beds would start."""
+    n = req.weeks
+    closures = [e for e in req.events if e.kind == "close_hospital"]
+    cuts = [e for e in req.events if e.kind == "set_capacity" and (e.factor or 0) < 1]
+    touched = {e.hospital_id for e in req.events}
+    trouble = [
+        w
+        for w in range(n)
+        if now["unmet_w"][w] > 0.05 or any(x > 0.05 for x in now["over_w"][w].values())
+    ]
+    starts = [w for w in (trouble[:1] + [e.start_week for e in closures]) if w < n]
+    if not starts:
+        starts = [w for w in range(n) if now["poor_w"][w] > 0][:1]
+    w0 = min(starts) if starts else None
+    peak = max(range(n), key=lambda w: (now["unmet_w"][w], now["poor_w"][w]))
+
+    out: list[dict] = []
+    if w0 is not None:
+        byid = {h["hospital_id"]: h for h in hospitals}
+        closed = {e.hospital_id for e in closures}
+        open_ = [h for h in hospitals if h["hospital_id"] not in closed | touched]
+
+        # rank overloaded hospitals by how many extra beds they would actually fill at the peak
+        def usable(h):
+            return min(
+                now["over_w"][peak].get(h["hospital_id"], 0), h["staffed_beds"] * (SURGE - 1)
+            )
+
+        worst = sorted((h for h in open_ if usable(h) > 0.05), key=lambda h: -usable(h))
+        sites = [h["hospital_id"] for h in worst[:3]]
+        for c in closed:
+            if c in byid and open_:
+                near = min(open_, key=lambda h: _km(h, byid[c]))["hospital_id"]
+                if near not in sites:
+                    sites.append(near)
+        for hid in sites[:MAX_SURGE_SITES]:
+            event = RnEvent(
+                id=f"fix-{hid}", kind="set_capacity", hospital_id=hid, start_week=w0, factor=SURGE
+            )
+            out.append(
+                {
+                    "id": f"beds-{hid}",
+                    "kind": "surge_beds",
+                    "hospital_id": hid,
+                    "factor": SURGE,
+                    "start_week": w0,
+                    "beds_added": round(byid[hid]["staffed_beds"] * (SURGE - 1)),
+                    "apply": {"type": "add_event", "event": event.model_dump()},
+                    "req": req.model_copy(update={"events": [*req.events, event]}),
+                }
+            )
+    lo = PARAMS["r0"]["min"]
+    for k in SPREAD:
+        r0 = round(max(lo, req.r0 * k), 2)
+        if r0 < req.r0:
+            out.append(
+                {
+                    "id": f"spread-{k}",
+                    "kind": "slow_spread",
+                    "r0_from": req.r0,
+                    "r0_to": r0,
+                    "cut": round(1 - k, 2),
+                    "apply": {"type": "param", "key": "r0", "value": r0},
+                    "req": req.model_copy(update={"r0": r0}),
+                }
+            )
+    for e in closures[:MAX_EVENT_FIXES]:
+        rest = [x for x in req.events if x.id != e.id]
+        end = e.start_week + 2
+        if end < n and (e.end_week is None or end < e.end_week):
+            out.append(
+                {
+                    "id": f"shorten-{e.id}",
+                    "kind": "shorten_closure",
+                    "hospital_id": e.hospital_id,
+                    "event_id": e.id,
+                    "start_week": e.start_week,
+                    "end_week": end,
+                    "apply": {"type": "edit_event", "id": e.id, "end_week": end},
+                    "req": req.model_copy(
+                        update={"events": [*rest, e.model_copy(update={"end_week": end})]}
+                    ),
+                }
+            )
+        out.append(
+            {
+                "id": f"cancel-{e.id}",
+                "kind": "cancel_closure",
+                "hospital_id": e.hospital_id,
+                "event_id": e.id,
+                "apply": {"type": "remove_event", "id": e.id},
+                "req": req.model_copy(update={"events": rest}),
+            }
+        )
+    for e in cuts[:MAX_EVENT_FIXES]:
+        out.append(
+            {
+                "id": f"restore-{e.id}",
+                "kind": "restore_beds",
+                "hospital_id": e.hospital_id,
+                "event_id": e.id,
+                "factor": e.factor,
+                "apply": {"type": "remove_event", "id": e.id},
+                "req": req.model_copy(update={"events": [x for x in req.events if x.id != e.id]}),
+            }
+        )
+    return out, w0
+
+
+@router.post("/mitigate")
+def mitigate(req: RnRun):
+    """Try a few fixes on the user's scenario and rank them by how many more people get a bed."""
+    if req.dataset not in {d.name for d in rn.available_datasets()}:
+        raise HTTPException(422, f"Dataset {req.dataset!r} is not available here.")
+    t0 = time.perf_counter()
+    now = _totals(req.dataset, req.config_json(), req.events_json())
+    n = req.weeks
+    peak = max(range(n), key=lambda w: (now["unmet_w"][w], now["poor_w"][w]))
+    current = {"unmet": _f(now["unmet"], 1), "poor_tract_weeks": now["poor"], "peak_week": peak}
+    if now["unmet"] < 0.5 and now["poor"] == 0:
+        return {
+            "current": {**current, "start_week": None},
+            "suggestions": [],
+            "tried": 0,
+            "seconds": _f(time.perf_counter() - t0, 1),
+            "status": "nothing_to_fix",
+        }
+    hospitals = rn.list_hospitals(_inputs(req.dataset, req.config_json()))
+    cands, w0 = _candidates(req, now, hospitals)
+    out = []
+    for c in cands:
+        r = c.pop("req")
+        t = _totals(r.dataset, r.config_json(), r.events_json())
+        helped = now["unmet"] - t["unmet"]
+        fixed = now["poor"] - t["poor"]
+        if helped < 1 and fixed < 1:
+            continue
+        beds = c.get("beds_added")
+        out.append(
+            {
+                **c,
+                "people_helped": _f(helped, 1),
+                "tract_weeks_fixed": fixed,
+                "unmet_after": _f(t["unmet"], 1),
+                "poor_after": t["poor"],
+                "per_100_beds": _f(helped / beds * 100, 1) if beds else None,
+            }
+        )
+    out.sort(key=lambda s: (-s["people_helped"], -s["tract_weeks_fixed"]))
+    return {
+        "current": {**current, "start_week": w0},
+        "suggestions": out[:6],
+        "tried": len(cands),
+        "seconds": _f(time.perf_counter() - t0, 1),
+        "status": "ok" if out else "none_helped",
+    }
 
 
 _eval_lock = threading.Lock()

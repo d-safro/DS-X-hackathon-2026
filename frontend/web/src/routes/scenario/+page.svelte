@@ -6,6 +6,7 @@
 	import LineChart from '#lib/components/LineChart.svelte';
 	import More from '#lib/components/More.svelte';
 	import RnEvents from '#lib/components/RnEvents.svelte';
+	import RnSuggestions from '#lib/components/RnSuggestions.svelte';
 
 	const r = $derived(rn.result!);
 	const v = $derived(rn.view!);
@@ -66,7 +67,8 @@
 		<h1>Scenario lab</h1>
 		<p>
 			Close a hospital or cut its beds for some weeks, then compare with the same weeks when nothing goes wrong. Both runs
-			share every other setting, and the compare uses the view you picked below ({phaseWord}).
+			share every other setting, and the compare uses the view you picked below ({phaseWord}). <b>What would help</b>
+			tries a few fixes and ranks them.
 		</p>
 	</div>
 
@@ -92,6 +94,12 @@
 				</tbody>
 			</table>
 			<p class="muted small">"Sent to another hospital" counts patients moved, not patients helped. Poor access means a score under {r.threshold}.</p>
+		</Card>
+	</div>
+
+	<div id="help">
+		<Card title="What would help" sub="Each idea is run through the model on top of your scenario. Ranked by how many more people get a bed over the whole run.">
+			<RnSuggestions />
 		</Card>
 	</div>
 

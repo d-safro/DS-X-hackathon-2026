@@ -157,3 +157,36 @@ def test_rn_evaluation_reads_the_artifact(tmp_path, monkeypatch):
     e = client.get("/api/rn/evaluation").json()
     assert e["status"] == "verified"
     assert e["facilities"]["220086"]["hospitals"] == ["BIDMC_E", "BIDMC_W"]
+
+
+def test_rn_mitigate_ranks_fixes_for_a_closure():
+    body = {
+        "dataset": "golden",
+        "r0": 3.5,
+        "events": [{"id": "e1", "kind": "close_hospital", "hospital_id": "H1", "start_week": 1}],
+    }
+    r = client.post("/api/rn/mitigate", json=body)
+    assert r.status_code == 200
+    j = r.json()
+    assert j["status"] in ("ok", "none_helped")
+    kinds = {s["kind"] for s in j["suggestions"]}
+    assert kinds <= {
+        "surge_beds",
+        "slow_spread",
+        "shorten_closure",
+        "cancel_closure",
+        "restore_beds",
+    }
+    helped = [s["people_helped"] for s in j["suggestions"]]
+    assert helped == sorted(helped, reverse=True)
+    for s in j["suggestions"]:
+        if s["apply"]["type"] == "add_event":  # an applied surge must be a valid event
+            run = client.post(
+                "/api/rn/run", json={**body, "events": [*body["events"], s["apply"]["event"]]}
+            )
+            assert run.status_code == 200
+
+
+def test_rn_mitigate_nothing_to_fix():
+    j = client.post("/api/rn/mitigate", json={"dataset": "golden", "r0": 0.5}).json()
+    assert j["status"] == "nothing_to_fix" and j["suggestions"] == []
