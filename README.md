@@ -206,6 +206,15 @@ You should see a page titled "ResiliNet | Boston Hospital Cascade" with a banner
 6. Open **Reroute ledger** to see which neighborhood's patients were redirected from which hospital to which hospital.
 7. Click **Reset to baseline** to remove all events.
 
+### Deploy the website
+
+The `Dockerfile` builds the SvelteKit site and serves it with the model API from one container (`docker build -t resilinet . && docker run -p 8000:8000 resilinet`). `render.yaml` deploys that container to a free [Render](https://render.com) web service:
+
+1. Open <https://dashboard.render.com/blueprint/new?repo=https://github.com/d-safro/DS-X-hackathon-2026> and sign in with GitHub.
+2. Enter a CARTO basemap key for `VITE_CARTO_KEY` (free at <https://carto.com/basemaps/apikey/>; leave it blank to keep the watermark) and click **Deploy Blueprint**.
+
+The key is read when the site is built, so after changing it under the service's **Environment** tab choose **Manual Deploy → Deploy latest commit**. A free service sleeps after 15 minutes without visitors and takes about a minute to wake.
+
 <details>
 <summary>Developer commands</summary>
 

@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/node_modules
+frontend/web/build
+frontend/web/.svelte-kit
+frontend/web/.env
+.env
+artifacts
+outputs
