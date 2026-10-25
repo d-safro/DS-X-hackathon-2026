@@ -4,8 +4,10 @@
 
 | | |
 |---|---|
+| **Live website** | **<https://resilinet-gztw.onrender.com/>** (no install; the first visit can take about a minute while the free server wakes up) |
 | Demo video | <https://youtu.be/zNkBcC58YjI> |
-| Repository | <https://github.com/Velzewu1/outbreak-hackachussets> |
+| Repository | <https://github.com/d-safro/DS-X-hackathon-2026> |
+| DS+X Devpost | <https://ds-x-hackathon-2026.devpost.com/> |
 | Hackachusetts project page | <https://www.sundai.club/projects/6054f32f-e27c-4e84-b7ed-afc7b917a3fc> |
 | Built at | BU Spark! DS+X Hackathon 2026 and Hackachusetts 2026 |
 
@@ -14,9 +16,15 @@
 
 ## Contents
 
-[Quick start](#quick-start) · [Try a scenario](#try-a-scenario) · [The problem](#the-problem) · [What it does](#what-it-does) · [How it works](#how-it-works) · [Data](#data) · [Validation](#validation) · [Assumptions and limitations](#assumptions-and-limitations) · [Ethics](#ethics-and-responsibility) · [Architecture](#architecture) · [Built with Kiro](#built-with-kiro) · [Team](#team)
+[Try it online](#try-it-online) · [Quick start](#quick-start) · [Try a scenario](#try-a-scenario) · [The problem](#the-problem) · [What it does](#what-it-does) · [How it works](#how-it-works) · [Data](#data) · [Validation](#validation) · [Assumptions and limitations](#assumptions-and-limitations) · [Ethics](#ethics-and-responsibility) · [Architecture](#architecture) · [Built with Kiro](#built-with-kiro) · [Team](#team)
+
+## Try it online
+
+Open **<https://resilinet-gztw.onrender.com/>**. It is the SvelteKit website over the same weekly model, running on a free Render server, so the first visit after a quiet spell takes about a minute. Close a hospital or cut its beds from **What if...?** (top right), step through the weeks with the bar at the bottom, and open **Scenario lab** for the reroute ledger and **What would help**. The same site also runs locally (see [The website](#the-website)).
 
 ## Quick start
+
+To run the Streamlit app on your own computer:
 
 You need **Python 3.12 or newer** and **git**. No API keys, no accounts, no internet connection once installed. The install takes one to three minutes.
 
@@ -25,8 +33,8 @@ You need **Python 3.12 or newer** and **git**. No API keys, no accounts, no inte
 Copy and paste the whole block into a terminal:
 
 ```bash
-git clone https://github.com/Velzewu1/outbreak-hackachussets.git
-cd outbreak-hackachussets
+git clone https://github.com/d-safro/DS-X-hackathon-2026.git
+cd DS-X-hackathon-2026
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -36,8 +44,8 @@ python -m streamlit run app/streamlit_app.py
 ### Windows (PowerShell)
 
 ```powershell
-git clone https://github.com/Velzewu1/outbreak-hackachussets.git
-cd outbreak-hackachussets
+git clone https://github.com/d-safro/DS-X-hackathon-2026.git
+cd DS-X-hackathon-2026
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -92,6 +100,7 @@ Capacity is usually looked at one building at a time, so it is hard to answer qu
 - **Shows before and after** for every week (before and after rerouting), with a ledger of every rerouted group of patients.
 - **Labels everything.** A banner always says whether you are looking at synthetic or real data, and every setting in `config.yaml` is tagged as assumed, fitted, or taken from the plan.
 - **Accepts any starting snapshot.** The demo starts from 2020–21 Suffolk County data, but the pipeline takes any set of districts, hospitals, and starting state, including this week's numbers, and simulates forward from there.
+- **Suggests what would help** (website). For the current scenario it tries a few fixes (25% more beds at the hospitals that would fill, slower spread, a shorter or cancelled closure, restored beds), reruns the model for each, and ranks them by how many more people get a bed. These are model what-ifs, not advice.
 - **Validates honestly** against real hospital reporting data, and reports the result even though the simple baseline wins (see [Validation](#validation)).
 
 ## How it works
@@ -224,7 +233,7 @@ scripts/                 smoke test, verification, backtest, benchmark
 tests/                   automated tests
 contracts/               definitions of every object passed between stages
 docs/                    equations, weekly state machine, decisions, walkthrough
-frontend/                optional SvelteKit website + FastAPI wrapper
+frontend/                SvelteKit website + FastAPI wrapper (the live site)
 seir/                    a second, more detailed daily model
 .kiro/                   Kiro steering files and spec
 ```
@@ -241,15 +250,15 @@ seir/                    a second, more detailed daily model
 | `pipeline/il3.py`, `pipeline/runner.py` | Weekly results and the week loop |
 | `validation/` | Fitting and backtests |
 
-**Tech stack:** Python 3.12, NumPy and SciPy (`solve_ivp` for the epidemic, parameter fitting), pandas, PyYAML, Streamlit, pydeck (map), pytest and Ruff, GitHub Actions CI. All versions are pinned in [requirements.txt](requirements.txt).
+**Tech stack:** Python 3.12, NumPy and SciPy (`solve_ivp` for the epidemic, parameter fitting), pandas, PyYAML, Streamlit, pydeck (map), pytest and Ruff, GitHub Actions CI. The website adds SvelteKit, MapLibre and FastAPI, and is deployed with Docker on Render. All versions are pinned in [requirements.txt](requirements.txt).
 
 ### The daily model (`seir/`)
 
 A second, more detailed model built earlier in the weekend: a daily metapopulation SEIR with age groups, ward, ICU and deaths, coupling between neighborhoods, ensembles and sensitivity runs, mobility-driven transmission, and an equity module that weights access by social vulnerability. It is calibrated to Massachusetts COVID-19 data. See [seir/README.md](seir/README.md).
 
-### The website (optional)
+### The website
 
-A SvelteKit site over both models, served by a small FastAPI app. It needs Node 20+ as well as Python:
+A SvelteKit site over both models, served by a small FastAPI app. It is live at <https://resilinet-gztw.onrender.com/>. To run it locally you need Node 20+ as well as Python:
 
 ```bash
 pip install -r requirements.txt -r seir/requirements.txt -r frontend/api/requirements.txt
@@ -259,6 +268,10 @@ npm --prefix frontend/web run dev                        # terminal 2, then open
 ```
 
 Details in [frontend/README.md](frontend/README.md).
+
+Or build and run the whole site as one container: `docker build -t resilinet . && docker run -p 8000:8000 resilinet`, then open <http://localhost:8000>.
+
+**Deploying your own copy.** `render.yaml` deploys the `Dockerfile` to a free [Render](https://render.com) web service. Open <https://dashboard.render.com/blueprint/new?repo=https://github.com/d-safro/DS-X-hackathon-2026>, sign in with GitHub, enter a CARTO basemap key for `VITE_CARTO_KEY` (free at <https://carto.com/basemaps/apikey/>; blank keeps the map watermark) and click **Deploy Blueprint**. The key is read at build time, so after changing it under **Environment** run **Manual Deploy → Deploy latest commit**. A free service sleeps after 15 minutes without visitors.
 
 <details>
 <summary>Developer commands</summary>
@@ -293,7 +306,7 @@ ResiliNet was built in the Kiro IDE, with five to six agents working in parallel
 - Valery (Vlarkus) Rabchanka
 - Ansar Samatov
 - David Safro
-- Benjamin Gershenovich
+- Benjamin (Ben) Gershenovich
 - Andy
 
 Thanks to BU Spark!, the Mass AI Coalition, Sundai, and Kiro, and to MassGIS and the U.S. Department of Health and Human Services for the public data.
